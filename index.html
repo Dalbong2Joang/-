@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="color-scheme" content="light">
+    <title>모바일 양옆 오목</title>
+    <style>
+        :root {
+            --bg-color: #2c3e50;
+            --panel-bg: #34495e;
+            --board-bg: #e4a765;
+            --line-color: #4a2e12;
+            color-scheme: light;
+        }
+
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color); color: white;
+            margin: 0; padding: 10px; height: 100vh;
+            display: flex; justify-content: center; align-items: center;
+            overflow: hidden;
+            forced-color-adjust: none;
+        }
+
+        .game-layout {
+            display: flex; flex-direction: row; align-items: center;
+            justify-content: center; width: 100%; max-width: 900px; gap: 12px;
+        }
+
+        /* 좌/우 플레이어 패널 */
+        .player-panel {
+            flex: 1; max-width: 140px; background: var(--panel-bg);
+            border-radius: 10px; padding: 12px 8px;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); text-align: center;
+        }
+
+        .player-panel.active {
+            border: 2px solid #f1c40f;
+            box-shadow: 0 0 12px rgba(241, 196, 15, 0.5);
+        }
+
+        .player-title { font-size: 0.9rem; font-weight: bold; color: #ecf0f1; }
+        
+        .stone-badge {
+            width: 32px; height: 32px; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 0.75rem; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+        }
+        .stone-badge.black { background: #111; color: white; border: 1px solid #444; }
+        .stone-badge.white { background: #fff; color: black; border: 1px solid #ccc; }
+
+        .btn {
+            width: 100%; padding: 10px 4px; border: none; border-radius: 6px;
+            font-size: 0.85rem; font-weight: bold; color: white; cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .btn:active { transform: scale(0.95); }
+        .btn-confirm { background: #2ecc71; }
+        .btn-confirm:disabled { background: #555; opacity: 0.5; cursor: not-allowed; }
+        .btn-undo { background: #e67e22; }
+        .btn-reset { background: #c0392b; margin-top: auto; }
+
+        /* 중앙 보드 컨테이너 */
+        .board-container {
+            position: relative; background: var(--board-bg);
+            padding: 12px; border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        .board {
+            display: grid; grid-template-columns: repeat(15, 1fr); grid-template-rows: repeat(15, 1fr);
+            width: min(70vw, 70vh, 450px); height: min(70vw, 70vh, 450px);
+            position: relative; background: var(--board-bg);
+        }
+
+        /* 교차점 격자선 */
+        .intersection {
+            position: relative; display: flex; justify-content: center; align-items: center;
+            cursor: pointer;
+        }
+        .intersection::before, .intersection::after {
+            content: ''; position: absolute; background-color: var(--line-color); z-index: 1;
+        }
+        .intersection::before { top: 50%; left: 0; right: 0; height: 1px; transform: translateY(-50%); }
+        .intersection::after { left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-50%); }
+
+        .intersection.row-0::after { top: 50%; }
+        .intersection.row-14::after { bottom: 50%; }
+        .intersection.col-0::before { left: 50%; }
+        .intersection.col-14::before { right: 50%; }
+
+        /* 화점 */
+        .star-point {
+            position: absolute; width: 5px; height: 5px; background-color: var(--line-color);
+            border-radius: 50%; z-index: 1; transform: translate(-50%, -50%); top: 50%; left: 50%;
+        }
+
+        /* 바둑돌 */
+        .stone {
+            width: 86%; height: 86%; border-radius: 50%; z-index: 2;
+            box-shadow: 2px 2px 4px rgba(0,0,0,0.4);
+        }
+        .stone.black { background: radial-gradient(circle at 30% 30%, #555, #000); }
+        .stone.white { background: radial-gradient(circle at 30% 30%, #ffffff, #e6e6e6) !important; border: 1px solid #b0b0b0; }
+
+        /* 2단계 선택 임시 돌 */
+        .stone.preview {
+            opacity: 0.5; border: 2px dashed #f1c40f; box-sizing: border-box;
+        }
+
+        /* 경고 메시지 팝업 */
+        .overlay-msg {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85); color: #e74c3c; padding: 12px 20px;
+            border-radius: 8px; font-weight: bold; font-size: 1rem; z-index: 20;
+            pointer-events: none; opacity: 0; transition: opacity 0.2s; text-align: center;
+            white-space: nowrap; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .overlay-msg.show { opacity: 1; }
+
+        /* 모달 오버레이 공통 */
+        .modal-overlay {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.85);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            gap: 12px; z-index: 30; border-radius: 8px; padding: 20px;
+        }
+        .modal-overlay.hidden { display: none; }
+        .modal-title { font-size: 1.1rem; font-weight: bold; color: #f1c40f; text-align: center; }
+        
+        .modal-btn-group { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 240px; }
+        .modal-btn {
+            padding: 12px; border: none; border-radius: 6px; font-size: 0.95rem;
+            font-weight: bold; cursor: pointer; color: white; background: #3498db;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .modal-btn:active { transform: scale(0.96); }
+        .modal-btn.secondary { background: #9b59b6; }
+        .modal-btn.dark { background: #34495e; border: 1px solid #7f8c8d; }
+
+        .rule-badge {
+            font-size: 0.75rem; color: #f1c40f; font-weight: bold; margin-top: -4px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-layout">
+        <!-- 1P (좌측) 패널 -->
+        <div class="player-panel" id="panelP1">
+            <div class="player-title">플레이어 1 (좌)</div>
+            <div class="rule-badge" id="ruleBadgeP1">스왑 2</div>
+            <div class="stone-badge black" id="badgeP1">흑</div>
+            <button class="btn btn-confirm" id="btnConfirmP1" onclick="confirmPlacement()" disabled>확정</button>
+            <button class="btn btn-undo" onclick="undoMove()">되돌리기</button>
+            <button class="btn btn-reset" onclick="openRuleSelect()">새 게임</button>
+        </div>
+
+        <!-- 중앙 오목판 -->
+        <div class="board-container">
+            <div class="board" id="board"></div>
+
+            <!-- 금수 / 경고 팝업 -->
+            <div class="overlay-msg" id="alertMsg">그 자리는 놓을 수 없습니다.</div>
+
+            <!-- 규칙 선택 모달 UI -->
+            <div class="modal-overlay" id="ruleModal">
+                <div class="modal-title">오목 규칙 선택</div>
+                <div class="modal-btn-group">
+                    <button class="modal-btn" onclick="selectRule('SWAP2')">스왑 2 룰 (Swap 2)</button>
+                    <button class="modal-btn secondary" onclick="selectRule('RENJU')">일반 렌주 룰 (흑 금수)</button>
+                    <button class="modal-btn dark" onclick="selectRule('STANDARD')">일반 오목 (금수 없음)</button>
+                </div>
+            </div>
+
+            <!-- 스왑 2 룰 진행 모달 UI -->
+            <div class="modal-overlay hidden" id="swapModal">
+                <div class="modal-title" id="swapTitle">Swap 2: 역할 선택</div>
+                <div class="modal-btn-group" id="swapBtnGroup"></div>
+            </div>
+        </div>
+
+        <!-- 2P (우측) 패널 -->
+        <div class="player-panel" id="panelP2">
+            <div class="player-title">플레이어 2 (우)</div>
+            <div class="rule-badge" id="ruleBadgeP2">스왑 2</div>
+            <div class="stone-badge white" id="badgeP2">백</div>
+            <button class="btn btn-confirm" id="btnConfirmP2" onclick="confirmPlacement()" disabled>확정</button>
+            <button class="btn btn-undo" onclick="undoMove()">되돌리기</button>
+        </div>
+    </div>
+
+    <script>
+        const SIZE = 15;
+        let board = Array(SIZE).fill(null).map(() => Array(SIZE).fill(null));
+        let selectedCell = null;
+        let history = [];
+        let gameOver = false;
+        let alertTimer = null;
+
+        let selectedRule = 'SWAP2';
+        let gameState = 'SWAP_P1_3STONES';
+        let swapStonesCount = 0;
+
+        let p1Color = 'black';
+        let p2Color = 'white';
+        let currentTurnColor = 'black';
+
+        const STARS = [[3,3], [3,11], [7,7], [11,3], [11,11]];
+
+        function initBoard() {
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = '';
+
+            for (let r = 0; r < SIZE; r++) {
+                for (let c = 0; c < SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = `intersection row-${r} col-${c}`;
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+
+                    if (STARS.some(([sr, sc]) => sr === r && sc === c)) {
+                        const star = document.createElement('div');
+                        star.className = 'star-point';
+                        cell.appendChild(star);
+                    }
+
+                    cell.addEventListener('click', () => handleCellClick(r, c));
+                    boardEl.appendChild(cell);
+                }
+            }
+        }
+
+        function openRuleSelect() {
+            document.getElementById('ruleModal').classList.remove('hidden');
+            document.getElementById('swapModal').classList.add('hidden');
+        }
+
+        function selectRule(rule) {
+            selectedRule = rule;
+            document.getElementById('ruleModal').classList.add('hidden');
+            resetGame();
+        }
+
+        function handleCellClick(r, c) {
+            if (gameOver || !document.getElementById('ruleModal').classList.contains('hidden')) return;
+            if (board[r][c] !== null) return;
+
+            if (selectedCell && selectedCell.r === r && selectedCell.c === c) {
+                confirmPlacement();
+                return;
+            }
+
+            selectedCell = { r, c };
+            renderBoard();
+        }
+
+        function confirmPlacement() {
+            if (!selectedCell || gameOver) return;
+            const { r, c } = selectedCell;
+
+            if ((selectedRule === 'SWAP2' || selectedRule === 'RENJU') && currentTurnColor === 'black' && isForbidden(r, c)) {
+                showAlert('그 자리는 놓을 수 없습니다.');
+                selectedCell = null;
+                renderBoard();
+                return;
+            }
+
+            saveHistory();
+            board[r][c] = currentTurnColor;
+            selectedCell = null;
+
+            if (checkWin(r, c, currentTurnColor)) {
+                gameOver = true;
+                const winner = currentTurnColor === p1Color ? '플레이어 1' : '플레이어 2';
+                showAlert(`🎉 ${winner} (${currentTurnColor === 'black' ? '흑' : '백'}) 승리! 🎉`);
+                renderBoard();
+                return;
+            }
+
+            processGameStateAfterMove();
+            renderBoard();
+        }
+
+        function processGameStateAfterMove() {
+            if (selectedRule === 'SWAP2') {
+                if (gameState === 'SWAP_P1_3STONES') {
+                    swapStonesCount++;
+                    if (swapStonesCount === 1) currentTurnColor = 'white';
+                    else if (swapStonesCount === 2) currentTurnColor = 'black';
+                    else if (swapStonesCount === 3) {
+                        gameState = 'SWAP_P2_CHOICE';
+                        showSwapModalP2Choice();
+                    }
+                } else if (gameState === 'SWAP_P2_2STONES') {
+                    swapStonesCount++;
+                    if (swapStonesCount === 4) currentTurnColor = 'black';
+                    else if (swapStonesCount === 5) {
+                        gameState = 'SWAP_P1_CHOICE';
+                        showSwapModalP1Choice();
+                    }
+                } else {
+                    currentTurnColor = currentTurnColor === 'black' ? 'white' : 'black';
+                }
+            } else {
+                currentTurnColor = currentTurnColor === 'black' ? 'white' : 'black';
+            }
+        }
+
+        function showSwapModalP2Choice() {
+            const modal = document.getElementById('swapModal');
+            const title = document.getElementById('swapTitle');
+            const group = document.getElementById('swapBtnGroup');
+
+            title.innerText = 'P1 3수 착수 완료!\nP2(우측) 역할 선택:';
+            group.innerHTML = `
+                <button class="modal-btn dark" onclick="selectRoleP2('black')">흑 선택 (P2가 흑)</button>
+                <button class="modal-btn" onclick="selectRoleP2('white')">백 선택 (P2가 백)</button>
+                <button class="modal-btn secondary" onclick="selectRoleP2('more')">2수 더 두기</button>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        function selectRoleP2(choice) {
+            document.getElementById('swapModal').classList.add('hidden');
+            if (choice === 'black') {
+                p2Color = 'black'; p1Color = 'white';
+                currentTurnColor = 'white';
+                gameState = 'PLAYING';
+            } else if (choice === 'white') {
+                p2Color = 'white'; p1Color = 'black';
+                currentTurnColor = 'white';
+                gameState = 'PLAYING';
+            } else if (choice === 'more') {
+                gameState = 'SWAP_P2_2STONES';
+                currentTurnColor = 'white';
+            }
+            renderBoard();
+        }
+
+        function showSwapModalP1Choice() {
+            const modal = document.getElementById('swapModal');
+            const title = document.getElementById('swapTitle');
+            const group = document.getElementById('swapBtnGroup');
+
+            title.innerText = 'P2 2수 추가 착수 완료!\nP1(좌측) 최종 역할 선택:';
+            group.innerHTML = `
+                <button class="modal-btn dark" onclick="selectRoleP1('black')">흑 선택 (P1이 흑)</button>
+                <button class="modal-btn" onclick="selectRoleP1('white')">백 선택 (P1이 백)</button>
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        function selectRoleP1(choice) {
+            document.getElementById('swapModal').classList.add('hidden');
+            if (choice === 'black') {
+                p1Color = 'black'; p2Color = 'white';
+                currentTurnColor = 'white';
+            } else {
+                p1Color = 'white'; p2Color = 'black';
+                currentTurnColor = 'white';
+            }
+            gameState = 'PLAYING';
+            renderBoard();
+        }
+
+        function isForbidden(r, c) {
+            board[r][c] = 'black';
+            if (checkWin(r, c, 'black')) { board[r][c] = null; return false; }
+            if (checkOverline(r, c)) { board[r][c] = null; return true; }
+            const count4 = countFours(r, c);
+            const count3 = countOpenThrees(r, c);
+            board[r][c] = null;
+            return (count4 >= 2 || count3 >= 2);
+        }
+
+        function checkOverline(r, c) {
+            const dirs = [[0,1], [1,0], [1,1], [1,-1]];
+            for (let [dr, dc] of dirs) {
+                let len = 1, step = 1;
+                while (r+dr*step >= 0 && r+dr*step < SIZE && c+dc*step >= 0 && c+dc*step < SIZE && board[r+dr*step][c+dc*step] === 'black') { len++; step++; }
+                step = 1;
+                while (r-dr*step >= 0 && r-dr*step < SIZE && c-dc*step >= 0 && c-dc*step < SIZE && board[r-dr*step][c-dc*step] === 'black') { len++; step++; }
+                if (len >= 6) return true;
+            }
+            return false;
+        }
+
+        function countFours(r, c) {
+            let fours = 0;
+            const dirs = [[0,1], [1,0], [1,1], [1,-1]];
+            for (let [dr, dc] of dirs) {
+                for (let offset = -4; offset <= 0; offset++) {
+                    let blackCount = 0, emptyCount = 0, valid = true;
+                    for (let i = 0; i < 5; i++) {
+                        const tr = r + dr * (offset + i), tc = c + dc * (offset + i);
+                        if (tr < 0 || tr >= SIZE || tc < 0 || tc >= SIZE) { valid = false; break; }
+                        if (board[tr][tc] === 'black') blackCount++;
+                        else if (board[tr][tc] === null) emptyCount++;
+                        else { valid = false; break; }
+                    }
+                    if (valid && blackCount === 4 && emptyCount === 1) { fours++; break; }
+                }
+            }
+            return fours;
+        }
+
+        /* 정규식을 활용하여 정확한 활삼 패턴만 필터링하는 로직 */
+        function countOpenThrees(r, c) {
+            let threes = 0;
+            const dirs = [[0,1], [1,0], [1,1], [1,-1]];
+            
+            const openThreePatterns = [
+                /001110/, // 붙은 삼 (왼쪽 여유)
+                /011100/, // 붙은 삼 (오른쪽 여유)
+                /010110/, // 1칸 띄운 삼 (왼쪽 띄움)
+                /011010/  // 1칸 띄운 삼 (오른쪽 띄움)
+            ];
+
+            for (let [dr, dc] of dirs) {
+                let lineString = "";
+                // 탐색 범위를 넓혀 앞뒤 막힘/띄움 여부 파악
+                for (let i = -5; i <= 5; i++) {
+                    const tr = r + dr * i;
+                    const tc = c + dc * i;
+                    if (tr < 0 || tr >= SIZE || tc < 0 || tc >= SIZE) {
+                        lineString += "2"; // 보드 밖은 2(막힘)
+                    } else {
+                        const stone = board[tr][tc];
+                        if (stone === 'black') lineString += "1";
+                        else if (stone === 'white') lineString += "2";
+                        else lineString += "0";
+                    }
+                }
+
+                for (let pattern of openThreePatterns) {
+                    if (pattern.test(lineString)) {
+                        threes++;
+                        break; 
+                    }
+                }
+            }
+            return threes;
+        }
+
+        function checkWin(r, c, color) {
+            const dirs = [[0,1], [1,0], [1,1], [1,-1]];
+            for (let [dr, dc] of dirs) {
+                let count = 1, step = 1;
+                while (r+dr*step >= 0 && r+dr*step < SIZE && c+dc*step >= 0 && c+dc*step < SIZE && board[r+dr*step][c+dc*step] === color) { count++; step++; }
+                step = 1;
+                while (r-dr*step >= 0 && r-dr*step < SIZE && c-dc*step >= 0 && c-dc*step < SIZE && board[r-dr*step][c-dc*step] === color) { count++; step++; }
+                
+                if ((selectedRule === 'SWAP2' || selectedRule === 'RENJU') && color === 'black') {
+                    if (count === 5) return true;
+                } else {
+                    if (count >= 5) return true;
+                }
+            }
+            return false;
+        }
+
+        function showAlert(text) {
+            const alertEl = document.getElementById('alertMsg');
+            alertEl.innerText = text;
+            alertEl.classList.add('show');
+            if (alertTimer) clearTimeout(alertTimer);
+            alertTimer = setTimeout(() => alertEl.classList.remove('show'), 1000);
+        }
+
+        function saveHistory() {
+            history.push({
+                board: board.map(row => [...row]),
+                gameState, swapStonesCount, currentTurnColor, p1Color, p2Color
+            });
+        }
+
+        function undoMove() {
+            if (history.length === 0 || gameOver) return;
+            const last = history.pop();
+            board = last.board;
+            gameState = last.gameState;
+            swapStonesCount = last.swapStonesCount;
+            currentTurnColor = last.currentTurnColor;
+            p1Color = last.p1Color;
+            p2Color = last.p2Color;
+            selectedCell = null;
+            document.getElementById('swapModal').classList.add('hidden');
+            renderBoard();
+        }
+
+        function renderBoard() {
+            document.querySelectorAll('.intersection').forEach(cell => {
+                const r = parseInt(cell.dataset.r);
+                const c = parseInt(cell.dataset.c);
+                
+                const existingStone = cell.querySelector('.stone');
+                if (existingStone) existingStone.remove();
+
+                if (board[r][c]) {
+                    const stone = document.createElement('div');
+                    stone.className = `stone ${board[r][c]}`;
+                    cell.appendChild(stone);
+                } else if (selectedCell && selectedCell.r === r && selectedCell.c === c) {
+                    const preview = document.createElement('div');
+                    preview.className = `stone preview ${currentTurnColor}`;
+                    cell.appendChild(preview);
+                }
+            });
+
+            const isP1Turn = currentTurnColor === p1Color;
+            const isP2Turn = currentTurnColor === p2Color;
+
+            document.getElementById('panelP1').classList.toggle('active', isP1Turn && !gameOver);
+            document.getElementById('panelP2').classList.toggle('active', isP2Turn && !gameOver);
+
+            const ruleText = selectedRule === 'SWAP2' ? '스왑 2' : (selectedRule === 'RENJU' ? '렌주 룰' : '일반');
+            document.getElementById('ruleBadgeP1').innerText = ruleText;
+            document.getElementById('ruleBadgeP2').innerText = ruleText;
+
+            document.getElementById('badgeP1').className = `stone-badge ${p1Color}`;
+            document.getElementById('badgeP1').innerText = p1Color === 'black' ? '흑' : '백';
+            document.getElementById('badgeP2').className = `stone-badge ${p2Color}`;
+            document.getElementById('badgeP2').innerText = p2Color === 'black' ? '흑' : '백';
+
+            document.getElementById('btnConfirmP1').disabled = !(selectedCell && isP1Turn && !gameOver);
+            document.getElementById('btnConfirmP2').disabled = !(selectedCell && isP2Turn && !gameOver);
+        }
+
+        function resetGame() {
+            board = Array(SIZE).fill(null).map(() => Array(SIZE).fill(null));
+            selectedCell = null;
+            history = [];
+            gameOver = false;
+            swapStonesCount = 0;
+            p1Color = 'black'; p2Color = 'white';
+            currentTurnColor = 'black';
+            
+            if (selectedRule === 'SWAP2') {
+                gameState = 'SWAP_P1_3STONES';
+            } else {
+                gameState = 'PLAYING';
+            }
+
+            document.getElementById('swapModal').classList.add('hidden');
+            renderBoard();
+        }
+
+        initBoard();
+        openRuleSelect();
+    </script>
+</body>
+</html>
